@@ -20,6 +20,9 @@ public class CtrlConfig implements Initializable {
     public TextField txtPort;
 
     @FXML
+    public TextField txtName;
+
+    @FXML
     public Label txtMessage;
 
     @Override

@@ -3,21 +3,15 @@ package com.server;
 import org.java_websocket.WebSocket;
 import org.json.JSONArray;
 
-import java.util.List;
 import java.util.Map;
-import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
- * Registre de clients connectats amb gestió interna del pool de noms.
+ * Registre de clients connectats amb els seus propis noms.
  *
  * Manté dos mapes bidireccionals:
  * - WebSocket a nom de client
  * - Nom de client a WebSocket
- *
- * També integra la lògica d'un pool de noms disponibles. Quan un client es connecta,
- * se li assigna un nom lliure. Quan es desconnecta, el nom torna al pool per ser reutilitzat.
  *
  * Aquesta classe és segura per a ús concurrent gràcies a l'ús de ConcurrentHashMap
  * i ConcurrentLinkedQueue. Els mètodes que modifiquen el pool utilitzen sincronització
@@ -31,64 +25,21 @@ final class ClientRegistry {
     /** Mapa de noms de client a sockets. */
     private final Map<String, WebSocket> byName = new ConcurrentHashMap<>();
 
-    /** Cua de noms disponibles per assignar. */
-    private final Queue<String> pool = new ConcurrentLinkedQueue<>();
-
-    /** Llista base de noms per reomplir el pool quan s'esgoti. */
-    private final List<String> seedNames;
-
     /**
-     * Crea un nou registre amb el conjunt inicial de noms disponibles.
-     *
-     * @param seedNames llista inicial de noms per al pool
+     * Crea un nou registre.
      */
-    ClientRegistry(List<String> seedNames) {
-        this.seedNames = seedNames;
-        resetPool();
-    }
+    ClientRegistry() {
 
-    /**
-     * Reinicia el pool de noms amb la llista inicial.
-     * Aquest mètode és sincronitzat per evitar condicions de cursa durant el buidat i reompliment.
-     */
-    private synchronized void resetPool() {
-        pool.clear();
-        pool.addAll(seedNames);
-    }
-
-    /**
-     * Extreu un nom disponible del pool. Si el pool està buit, es reinicia i es torna a intentar.
-     *
-     * @return un nom lliure extret del pool
-     */
-    private String takeOrRecycle() {
-        String name = pool.poll();
-        if (name == null) {
-            resetPool();
-            name = pool.poll();
-        }
-        return name;
-    }
-
-    /**
-     * Retorna un nom al pool de disponibles.
-     *
-     * @param name el nom a retornar; si és null no es fa res
-     */
-    private void giveBack(String name) {
-        if (name != null) {
-            pool.offer(name);
-        }
     }
 
     /**
      * Afegeix un client nou i li assigna un nom lliure.
      *
      * @param socket socket del client connectat
+     * @param name nom del client connectat
      * @return el nom assignat al client
      */
-    String add(WebSocket socket) {
-        String name = takeOrRecycle();
+    String add(WebSocket socket, String name) {
         bySocket.put(socket, name);
         byName.put(name, socket);
         return name;
@@ -104,7 +55,6 @@ final class ClientRegistry {
         String name = bySocket.remove(socket);
         if (name != null) {
             byName.remove(name);
-            giveBack(name);
         }
         return name;
     }
@@ -161,5 +111,13 @@ final class ClientRegistry {
      */
     Map<WebSocket, String> snapshot() {
         return Map.copyOf(bySocket);
+    }
+
+    int size() {
+        return bySocket.size();
+    }
+
+    boolean contains(String name) {
+        return byName.containsKey(name);
     }
 }

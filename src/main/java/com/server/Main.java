@@ -9,8 +9,6 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.net.InetSocketAddress;
-import java.util.Arrays;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
@@ -32,11 +30,7 @@ public class Main extends WebSocketServer {
 
     /** Port per defecte on escolta el servidor. */
     public static final int DEFAULT_PORT = 3000;
-
-    /** Llista de noms disponibles per als clients connectats. */
-    private static final List<String> CHARACTER_NAMES = Arrays.asList(
-        "Mario", "Luigi", "Peach", "Toad", "Bowser", "Wario", "Zelda", "Link"
-    );
+    public static final int MAX_CLIENTS = 4;
 
     // Claus JSON
     private static final String K_TYPE = "type";
@@ -45,9 +39,11 @@ public class Main extends WebSocketServer {
     private static final String K_DESTINATION = "destination";
     private static final String K_ID = "id";
     private static final String K_LIST = "list";
+    private static final String K_NAME = "name";
 
     // Tipus de missatge
     private static final String T_BOUNCE = "bounce";
+    private static final String T_REGISTER = "register";
     private static final String T_BROADCAST = "broadcast";
     private static final String T_PRIVATE = "private";
     private static final String T_CLIENTS = "clients";
@@ -64,7 +60,7 @@ public class Main extends WebSocketServer {
      */
     public Main(InetSocketAddress address) {
         super(address);
-        this.clients = new ClientRegistry(CHARACTER_NAMES);
+        this.clients = new ClientRegistry();
     }
 
     // ----------------- Helpers JSON -----------------
@@ -140,15 +136,17 @@ public class Main extends WebSocketServer {
     /** Assigna un nom al client i notifica la llista actualitzada. */
     @Override
     public void onOpen(WebSocket conn, ClientHandshake handshake) {
-        String name = clients.add(conn);
-        System.out.println("Client connectat: " + name);
-        sendClientsListToAll();
+        System.out.println("Socket obert, esperant register...");
     }
 
     /** Elimina el client del registre i notifica la llista actualitzada. */
     @Override
     public void onClose(WebSocket conn, int code, String reason, boolean remote) {
         String name = clients.remove(conn);
+        if (name == null) {
+            System.out.println("Socket no registrat desconnectat");
+            return;
+        }
         System.out.println("Client desconnectat: " + name);
         sendClientsListToAll();
     }
@@ -166,10 +164,34 @@ public class Main extends WebSocketServer {
         }
 
         String type = obj.optString(K_TYPE, "");
+
+        if (origin == null && !T_REGISTER.equals(type)) {
+            sendSafe(conn, msg(T_ERROR).put(K_MESSAGE, "Not registered yet").toString());
+            return;
+        }
+
         switch (type) {
             case T_BOUNCE -> {
                 String txt = obj.optString(K_MESSAGE, "");
                 sendSafe(conn, msg(T_BOUNCE).put(K_MESSAGE, txt).toString());
+            }
+            case T_REGISTER -> {
+                String name = obj.optString(K_NAME, "").trim();
+                if (name.isEmpty()) {
+                    sendSafe(conn, msg(T_ERROR).put(K_MESSAGE, "Invalid name").toString());
+                    return;
+                }
+                if (clients.contains(name)) {
+                    sendSafe(conn, msg(T_ERROR).put(K_MESSAGE, "Name taken").toString());
+                    return;
+                }
+                if (clients.size() >= MAX_CLIENTS) {
+                    sendSafe(conn, msg(T_ERROR).put(K_MESSAGE, "Room full").toString());
+                    conn.close();
+                    return;
+                }
+                clients.add(conn, name);
+                sendClientsListToAll();
             }
             case T_BROADCAST -> {
                 String txt = obj.optString(K_MESSAGE, "");

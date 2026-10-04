@@ -89,6 +89,14 @@ public class Main extends Application {
 
         ctrlConfig.txtMessage.setTextFill(Color.BLACK);
         ctrlConfig.txtMessage.setText("Connecting ...");
+
+        String name = ctrlConfig.txtName.getText().trim();
+        // Comprueba si el nombre esta vacio
+        if (name.isEmpty()) {
+            ctrlConfig.txtMessage.setTextFill(Color.RED);
+            ctrlConfig.txtMessage.setText("Enter a name");
+            return;
+        }
     
         pauseDuring(1500, () -> { // Give time to show connecting message ...
 
@@ -96,6 +104,13 @@ public class Main extends Application {
             String host = ctrlConfig.txtHost.getText();
             String port = ctrlConfig.txtPort.getText();
             wsClient = UtilsWS.getSharedInstance(protocol + "://" + host + ":" + port);
+
+            wsClient.onOpen((msg) -> {
+                JSONObject o = new JSONObject();
+                o.put("type", "register");
+                o.put("name", name);
+                wsClient.safeSend(o.toString());
+            });
     
             // Platform.runlater assegura que el codi s'executi 
             // al fil de la UI, per evitar problemes de concurrència amb JavaFX
@@ -105,11 +120,21 @@ public class Main extends Application {
     }
    
     private static void wsMessage(String response) {
-        // Fer aquí els canvis a la interficie
-        if (!"ViewSockets".equals(UtilsViews.getActiveView())) {
-            UtilsViews.setViewAnimating("ViewSockets");
-        }
         JSONObject msgObj = new JSONObject(response);
+        String type = msgObj.optString("type", "");
+
+        if (type.equals("error")) {
+            String err = msgObj.optString("message", "Error");
+            ctrlConfig.txtMessage.setTextFill(Color.RED);
+            ctrlConfig.txtMessage.setText(err);
+            return;
+        }
+
+        if (type.equals("clients")) {
+            if (!"ViewSockets".equals(UtilsViews.getActiveView())) {
+                UtilsViews.setViewAnimating("ViewSockets");
+            }
+        }
         ctrlSockets.receiveMessage(msgObj);
     }
 
