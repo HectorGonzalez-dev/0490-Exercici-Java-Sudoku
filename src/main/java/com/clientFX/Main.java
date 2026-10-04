@@ -1,9 +1,5 @@
 package com.clientFX;
 
-import java.util.ArrayList;
-import java.util.List;
-
-import org.json.JSONArray;
 import org.json.JSONObject;
 
 import javafx.animation.PauseTransition;
@@ -19,45 +15,42 @@ public class Main extends Application {
 
     public static UtilsWS wsClient;
 
-    public static int port = 3000;
-    public static String protocol = "http";
-    public static String host = "localhost";
-    public static String protocolWS = "ws";
-
     public static CtrlConfig ctrlConfig;
-    public static CtrlSockets ctrlSockets;
+    public static CtrlSudoku ctrlSockets;
+    public static CtrlResults ctrlResults;
 
     private static int connectAttempt = 0;
     private static final String CONNECTING_TEXT = "Connecting ...";
 
     public static void main(String[] args) {
-
-        // Iniciar app JavaFX   
+        // Inicia la aplicación JavaFX
         launch(args);
     }
-    
+
     @Override
     public void start(Stage stage) throws Exception {
 
-        final int windowWidth = 400;
-        final int windowHeight = 300;
+        final int windowWidth = 700;
+        final int windowHeight = 650;
 
         UtilsViews.parentContainer.setStyle("-fx-font: 14 arial;");
-        UtilsViews.addView(getClass(), "ViewConfig", "/assets/viewConfig.fxml"); 
+        UtilsViews.addView(getClass(), "ViewConfig", "/assets/viewConfig.fxml");
         UtilsViews.addView(getClass(), "ViewSockets", "/assets/viewSockets.fxml");
+        UtilsViews.addView(getClass(), "ViewResults", "/assets/viewResults.fxml");
 
         ctrlConfig = (CtrlConfig) UtilsViews.getController("ViewConfig");
-        ctrlSockets = (CtrlSockets) UtilsViews.getController("ViewSockets");
+        ctrlSockets = (CtrlSudoku) UtilsViews.getController("ViewSockets");
+        ctrlResults = (CtrlResults) UtilsViews.getController("ViewResults");
 
         Scene scene = new Scene(UtilsViews.parentContainer);
-        
+
         stage.setScene(scene);
-        stage.setTitle("JavaFX - NodeJS");
+        stage.setTitle("Sudoku");
         stage.setMinWidth(windowWidth);
         stage.setMinHeight(windowHeight);
         stage.show();
 
-        // Add icon only if not Mac
+        // Añade el icono solo si no es Mac
         if (!System.getProperty("os.name").contains("Mac")) {
             Image icon = new Image("file:/icons/icon.png");
             stage.getIcons().add(icon);
@@ -66,11 +59,11 @@ public class Main extends Application {
 
 
     @Override
-    public void stop() { 
+    public void stop() {
         if (wsClient != null) {
             wsClient.forceExit();
         }
-        System.exit(0); // Kill all executor services
+        System.exit(0); // Mata todos los servicios en segundo plano
     }
 
     public static void pauseDuring(long milliseconds, Runnable action) {
@@ -79,33 +72,25 @@ public class Main extends Application {
         pause.play();
     }
 
-    public static <T> List<T> jsonArrayToList(JSONArray array, Class<T> clazz) {
-        List<T> list = new ArrayList<>();
-        for (int i = 0; i < array.length(); i++) {
-            T value = clazz.cast(array.get(i));
-            list.add(value);
-        }
-        return list;
-    }
-
     public static void connectToServer() {
 
         ctrlConfig.txtMessage.setTextFill(Color.BLACK);
         ctrlConfig.txtMessage.setText(CONNECTING_TEXT);
 
         String name = ctrlConfig.txtName.getText().trim();
-        // Comprueba si el nombre esta vacio
+        // El nombre no puede estar vacío
         if (name.isEmpty()) {
             ctrlConfig.txtMessage.setTextFill(Color.RED);
             ctrlConfig.txtMessage.setText("Enter a name");
             return;
         }
+        ctrlSockets.setPlayerName(name);
 
         final int attempt = ++connectAttempt;
-    
-        pauseDuring(1500, () -> { // Give time to show connecting message ...
+
+        pauseDuring(1500, () -> { // Espera un poco para mostrar el mensaje ...
             if (attempt != connectAttempt) {
-                return; // A newer attempt superseded this one
+                return; // Un intento más nuevo dejó obsoleto a este
             }
 
             String protocol = ctrlConfig.txtProtocol.getText();
@@ -113,16 +98,16 @@ public class Main extends Application {
             String port = ctrlConfig.txtPort.getText();
             String url = protocol + "://" + host + ":" + port;
             wsClient = UtilsWS.getSharedInstance(url);
-    
+
             wsClient.onOpen((msg) -> {
                 JSONObject o = new JSONObject();
                 o.put("type", "register");
                 o.put("name", name);
                 wsClient.safeSend(o.toString());
             });
-    
-            // Platform.runlater assegura que el codi s'executi 
-            // al fil de la UI, per evitar problemes de concurrència amb JavaFX
+
+            // Platform.runLater ejecuta el código en el hilo de la interfaz,
+            // para evitar problemas de concurrencia con JavaFX
             wsClient.onMessage((response) -> { Platform.runLater(() -> { wsMessage(response); }); });
             wsClient.onClose((response) -> { Platform.runLater(() -> { wsClose(response); }); });
             wsClient.onError((response) -> { Platform.runLater(() -> { wsError(response); }); });
@@ -134,6 +119,7 @@ public class Main extends Application {
                     return;
                 }
                 if (!"ViewSockets".equals(UtilsViews.getActiveView())
+                        && !"ViewResults".equals(UtilsViews.getActiveView())
                         && CONNECTING_TEXT.equals(ctrlConfig.txtMessage.getText())
                         && (wsClient == null || !wsClient.isOpen())) {
                     ctrlConfig.txtMessage.setTextFill(Color.RED);
@@ -142,24 +128,44 @@ public class Main extends Application {
             });
         });
     }
-   
+
     private static void wsMessage(String response) {
         JSONObject msgObj = new JSONObject(response);
         String type = msgObj.optString("type", "");
 
         if (type.equals("error")) {
-            String err = msgObj.optString("message", "Error");
-            ctrlConfig.txtMessage.setTextFill(Color.RED);
-            ctrlConfig.txtMessage.setText(err);
+            // Si aún no entró al juego, muestra el error en la configuración
+            if (!"ViewSockets".equals(UtilsViews.getActiveView())
+                    && !"ViewResults".equals(UtilsViews.getActiveView())) {
+                String err = msgObj.optString("message", "Error");
+                ctrlConfig.txtMessage.setTextFill(Color.RED);
+                ctrlConfig.txtMessage.setText(err);
+                return;
+            }
+            ctrlSockets.receiveMessage(msgObj);
             return;
         }
 
-        if (type.equals("clients")) {
-            if (!"ViewSockets".equals(UtilsViews.getActiveView())) {
-                UtilsViews.setViewAnimating("ViewSockets");
+        if (type.equals("state")) {
+            boolean finished = msgObj.optBoolean("finished", false);
+            if (finished) {
+                ctrlSockets.receiveMessage(msgObj);
+                ctrlResults.showRanking(msgObj.optJSONObject("scores"));
+                if (!"ViewResults".equals(UtilsViews.getActiveView())) {
+                    UtilsViews.setViewAnimating("ViewResults");
+                }
+            } else {
+                String active = UtilsViews.getActiveView();
+                if ("ViewResults".equals(active)) {
+                    // Se queda en resultados hasta que el jugador pulse Play Again
+                    return;
+                }
+                if (!"ViewSockets".equals(active)) {
+                    UtilsViews.setViewAnimating("ViewSockets");
+                }
+                ctrlSockets.receiveMessage(msgObj);
             }
         }
-        ctrlSockets.receiveMessage(msgObj);
     }
 
     private static void wsError(String response) {
@@ -176,6 +182,7 @@ public class Main extends Application {
 
     private static void wsClose(String response) {
         if (!"ViewSockets".equals(UtilsViews.getActiveView())
+                && !"ViewResults".equals(UtilsViews.getActiveView())
                 && CONNECTING_TEXT.equals(ctrlConfig.txtMessage.getText())) {
             ctrlConfig.txtMessage.setTextFill(Color.RED);
             ctrlConfig.txtMessage.setText("Connection closed, try again");

@@ -176,8 +176,4 @@ public class UtilsWS {
     public boolean isOpen() {
         return client != null && client.isOpen();
     }
-
-    public boolean isClosed() {
-        return client == null || client.isClosed();
-    }
 }
