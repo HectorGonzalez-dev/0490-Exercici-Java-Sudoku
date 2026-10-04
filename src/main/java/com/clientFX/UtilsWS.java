@@ -29,6 +29,24 @@ public class UtilsWS {
         createNewWebSocketClient();
     }
 
+    private void closeQuietly() {
+        try {
+            if (client != null && !client.isClosed()) {
+                client.close();
+            }
+        } catch (Exception e) {
+            System.out.println("WS Error closing previous connection: " + e.getMessage());
+        }
+    }
+
+    public void freshConnect() {
+        closeQuietly();
+        createNewWebSocketClient();
+        if (client != null) {
+            client.connect();
+        }
+    }
+
     private void createNewWebSocketClient() {
         try {
             this.client = new WebSocketClient(new URI(location), new Draft_6455()) {
@@ -55,24 +73,25 @@ public class UtilsWS {
                     if (onCloseCallBack != null) {
                         onCloseCallBack.accept(message);
                     }
-                    if (remote) {
-                        scheduleReconnect();
-                    }
                 }
 
                 @Override
                 public void onError(Exception e) {
-                    String message = "WS connection error: " + e.getMessage();
+                    String detail = String.valueOf(e);
+                    if (e != null && e.getMessage() != null) {
+                        detail = e.getMessage();
+                    }
+                    String message = "WS connection error: " + detail;
                     System.out.println(message);
                     if (onErrorCallBack != null) {
                         onErrorCallBack.accept(message);
                     }
-                    if (e.getMessage().contains("Connection refused") || e.getMessage().contains("Connection reset")) {
+                    System.err.println(detail);
+                    if (detail.contains("Connection refused") || detail.contains("Connection reset")) {
                         scheduleReconnect();
                     }
                 }
             };
-            this.client.connect();
         } catch (URISyntaxException e) {
             e.printStackTrace();
             System.out.println("WS Error, " + location + " is not a valid URI");
@@ -92,15 +111,20 @@ public class UtilsWS {
 
         System.out.println("WS reconnecting to: " + this.location);
 
-        if (client != null) {
-            client.close();
-        }
+        closeQuietly();
         createNewWebSocketClient();
+        if (client != null) {
+            client.connect();
+        }
     }
 
     public static UtilsWS getSharedInstance(String location) {
         if (sharedInstance == null) {
             sharedInstance = new UtilsWS(location);
+        } else if (!sharedInstance.location.equals(location)) {
+            sharedInstance.closeQuietly();
+            sharedInstance.location = location;
+            sharedInstance.createNewWebSocketClient();
         }
         return sharedInstance;
     }
@@ -151,5 +175,9 @@ public class UtilsWS {
 
     public boolean isOpen() {
         return client != null && client.isOpen();
+    }
+
+    public boolean isClosed() {
+        return client == null || client.isClosed();
     }
 }

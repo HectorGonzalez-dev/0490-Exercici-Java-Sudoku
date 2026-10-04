@@ -179,18 +179,15 @@ public class Main extends WebSocketServer {
                 String name = obj.optString(K_NAME, "").trim();
                 if (name.isEmpty()) {
                     sendSafe(conn, msg(T_ERROR).put(K_MESSAGE, "Invalid name").toString());
+                    conn.close(1000, "Invalid name");
                     return;
                 }
-                if (clients.contains(name)) {
-                    sendSafe(conn, msg(T_ERROR).put(K_MESSAGE, "Name taken").toString());
+                String refused = clients.tryRegister(conn, name, MAX_CLIENTS);
+                if (refused != null) {
+                    sendSafe(conn, msg(T_ERROR).put(K_MESSAGE, refused).toString());
+                    conn.close(1000, refused);
                     return;
                 }
-                if (clients.size() >= MAX_CLIENTS) {
-                    sendSafe(conn, msg(T_ERROR).put(K_MESSAGE, "Room full").toString());
-                    conn.close();
-                    return;
-                }
-                clients.add(conn, name);
                 sendClientsListToAll();
             }
             case T_BROADCAST -> {

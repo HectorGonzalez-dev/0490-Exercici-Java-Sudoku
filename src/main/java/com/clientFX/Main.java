@@ -27,6 +27,9 @@ public class Main extends Application {
     public static CtrlConfig ctrlConfig;
     public static CtrlSockets ctrlSockets;
 
+    private static int connectAttempt = 0;
+    private static final String CONNECTING_TEXT = "Connecting ...";
+
     public static void main(String[] args) {
 
         // Iniciar app JavaFX   
@@ -88,7 +91,7 @@ public class Main extends Application {
     public static void connectToServer() {
 
         ctrlConfig.txtMessage.setTextFill(Color.BLACK);
-        ctrlConfig.txtMessage.setText("Connecting ...");
+        ctrlConfig.txtMessage.setText(CONNECTING_TEXT);
 
         String name = ctrlConfig.txtName.getText().trim();
         // Comprueba si el nombre esta vacio
@@ -97,14 +100,20 @@ public class Main extends Application {
             ctrlConfig.txtMessage.setText("Enter a name");
             return;
         }
+
+        final int attempt = ++connectAttempt;
     
         pauseDuring(1500, () -> { // Give time to show connecting message ...
+            if (attempt != connectAttempt) {
+                return; // A newer attempt superseded this one
+            }
 
             String protocol = ctrlConfig.txtProtocol.getText();
             String host = ctrlConfig.txtHost.getText();
             String port = ctrlConfig.txtPort.getText();
-            wsClient = UtilsWS.getSharedInstance(protocol + "://" + host + ":" + port);
-
+            String url = protocol + "://" + host + ":" + port;
+            wsClient = UtilsWS.getSharedInstance(url);
+    
             wsClient.onOpen((msg) -> {
                 JSONObject o = new JSONObject();
                 o.put("type", "register");
@@ -115,7 +124,22 @@ public class Main extends Application {
             // Platform.runlater assegura que el codi s'executi 
             // al fil de la UI, per evitar problemes de concurrència amb JavaFX
             wsClient.onMessage((response) -> { Platform.runLater(() -> { wsMessage(response); }); });
+            wsClient.onClose((response) -> { Platform.runLater(() -> { wsClose(response); }); });
             wsClient.onError((response) -> { Platform.runLater(() -> { wsError(response); }); });
+
+            wsClient.freshConnect();
+
+            pauseDuring(5000, () -> {
+                if (attempt != connectAttempt) {
+                    return;
+                }
+                if (!"ViewSockets".equals(UtilsViews.getActiveView())
+                        && CONNECTING_TEXT.equals(ctrlConfig.txtMessage.getText())
+                        && (wsClient == null || !wsClient.isOpen())) {
+                    ctrlConfig.txtMessage.setTextFill(Color.RED);
+                    ctrlConfig.txtMessage.setText("Connection closed, try again");
+                }
+            });
         });
     }
    
@@ -147,6 +171,14 @@ public class Main extends Application {
             pauseDuring(1500, () -> {
                 ctrlConfig.txtMessage.setText("");
             });
+        }
+    }
+
+    private static void wsClose(String response) {
+        if (!"ViewSockets".equals(UtilsViews.getActiveView())
+                && CONNECTING_TEXT.equals(ctrlConfig.txtMessage.getText())) {
+            ctrlConfig.txtMessage.setTextFill(Color.RED);
+            ctrlConfig.txtMessage.setText("Connection closed, try again");
         }
     }
 }

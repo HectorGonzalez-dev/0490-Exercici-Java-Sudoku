@@ -40,9 +40,45 @@ final class ClientRegistry {
      * @return el nom assignat al client
      */
     String add(WebSocket socket, String name) {
+        if (tryRegister(socket, name, Integer.MAX_VALUE) == null) {
+            return name;
+        }
+        return null;
+    }
+
+    String tryRegister(WebSocket socket, String name, int maxClients) {
+        String prev = bySocket.get(socket);
+        if (name.equals(prev)) {
+            return null;
+        }
+        WebSocket existing = byName.get(name);
+        if (existing != null && !existing.equals(socket)) {
+            boolean alive;
+            try {
+                alive = existing.isOpen();
+            } catch (Exception e) {
+                alive = false;
+            }
+            if (!alive) {
+                String stale = bySocket.remove(existing);
+                if (stale != null) {
+                    byName.remove(stale);
+                }
+                existing = null;
+            }
+        }
+        if (existing != null) {
+            return "Name taken";
+        }
+        if (prev == null && bySocket.size() >= maxClients) {
+            return "Room full";
+        }
+        if (prev != null) {
+            byName.remove(prev);
+        }
         bySocket.put(socket, name);
         byName.put(name, socket);
-        return name;
+        return null;
     }
 
     /**
